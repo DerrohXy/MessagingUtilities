@@ -20,13 +20,14 @@ type SMTPCredentials struct {
 	Host     string
 	Port     string
 	User     string
+	Sender   string
 	Password string
 	UseTLS   bool
 }
 
 type EmailAttachment struct {
-	data io.Reader
-	name *string
+	Data io.Reader
+	Name *string
 }
 
 func SendSMTPEmailMessage(
@@ -39,7 +40,7 @@ func SendSMTPEmailMessage(
 ) error {
 	message_ := gomail.NewMessage()
 
-	message_.SetHeader("From", credentials.User)
+	message_.SetHeader("From", credentials.Sender)
 	message_.SetHeader("To", *receivers...)
 	if subject != nil {
 		message_.SetHeader("Subject", *subject)
@@ -56,12 +57,12 @@ func SendSMTPEmailMessage(
 	if attachments != nil {
 		for _, reader := range *attachments {
 			message_.Attach(
-				*reader.name,
+				*reader.Name,
 				gomail.SetHeader(map[string][]string{
 					"Content-Type": {"application/octet-stream"},
 				}),
 				gomail.SetCopyFunc(func(w io.Writer) error {
-					_, err := io.Copy(w, reader.data)
+					_, err := io.Copy(w, reader.Data)
 					return err
 				}),
 			)
