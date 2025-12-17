@@ -1,11 +1,11 @@
 package messagingutilities
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -125,16 +125,14 @@ type AfricasTalkingCredentials struct {
 	SenderID string
 }
 
-type atSmsRequest struct {
-	Username string `json:"username"`
-	To       string `json:"to"` // Comma-separated list of recipients
-	Message  string `json:"message"`
-	From     string `json:"from,omitempty"` // Optional sender ID
+type atSmsResponseRecipient struct {
+	status string `json:""`
 }
 
 type atSmsResponse struct {
 	SMSMessageData struct {
-		Message string `json:"Message"`
+		Message    string                   `json:"Message"`
+		Recipients []atSmsResponseRecipient `json:"Recipients"`
 	} `json:"SMSMessageData"`
 }
 
@@ -147,27 +145,24 @@ func SendAfricasTalkingSmsMessage(
 		return fmt.Errorf("Message body cannot be empty")
 	}
 
-	baseURL := "https://api.africastalking.com"
-	url := baseURL + "/version1/messaging"
-
-	payload := atSmsRequest{
-		Username: credentials.Username,
-		To:       *receiver,
-		Message:  *message,
-		From:     credentials.SenderID,
+	if strings.Contains(*receiver, ",") {
+		return fmt.Errorf("Multiple receivers may hav been passed")
 	}
 
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("Failed to marshal JSON payload: %w", err)
-	}
+	baseURL := "https://api.africastalking.com/version1/messaging"
 
-	request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+	payload := url.Values{}
+	payload.Set("username", credentials.Username)
+	payload.Set("to", *receiver)
+	payload.Set("from", credentials.SenderID)
+	payload.Set("message", *message)
+
+	request, err := http.NewRequest("POST", baseURL, strings.NewReader(payload.Encode()))
 	if err != nil {
 		return fmt.Errorf("Failed to create http request: %w", err)
 	}
 
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("apiKey", credentials.ApiKey)
 
@@ -194,11 +189,14 @@ func SendAfricasTalkingSmsMessage(
 		return fmt.Errorf("Successfully sent, but failed to parse response: %w", err)
 	}
 
-	if strings.Contains(atResp.SMSMessageData.Message, "Total Cost: KES 0.00") {
-		return fmt.Errorf(
-			"africa's talking send likely failed. Check API key/username. Response: %s",
-			atResp.SMSMessageData.Message,
-		)
+	if len(atResp.SMSMessageData.Recipients) != 1 {
+		return fmt.Errorf("Sent recipient list is empty.")
+	}
+
+	for _, atResp_ := range atResp.SMSMessageData.Recipients {
+		if strings.Compare("", atResp_.status) != 0 {
+			return fmt.Errorf("Message could not be sent")
+		}
 	}
 
 	return nil
